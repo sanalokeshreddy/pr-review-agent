@@ -1,0 +1,13 @@
+# Python build artifacts
+__pycache__/
+*.pyc
+
+# Environment files - VERY IMPORTANT
+.env
+venv/
+venv_stable/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PR Review Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI-Powered PR Review Agent</h1>
+            <p>Analyze pull requests from GitHub, GitLab, and Bitbucket with AI-powered code review</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-link active" onclick="openTab(event, 'pr-tab')">PR URL Review</button>
+            <button class="tab-link" onclick="openTab(event, 'diff-tab')">Direct Diff Review</button>
+        </div>
+
+        <div id="pr-tab" class="tab-content active">
+            <div class="input-section">
+                <label for="pr-url">Pull Request URL:</label>
+                <input type="url" id="pr-url" placeholder="https://github.com/owner/repo/pull/123" required>
+                
+                <label for="api-key">Gemini API Key (optional if set in environment):</label>
+                <input type="password" id="api-key" placeholder="Your Gemini API key">
+                
+                <button onclick="reviewPR()">Review PR</button>
+            </div>
+        </div>
+
+        <div id="diff-tab" class="tab-content">
+            <div class="input-section">
+                <label for="diff-text">Paste Diff Content:</label>
+                <textarea id="diff-text" placeholder="Paste your git diff content here..." rows="10"></textarea>
+                
+                <label for="diff-api-key">Gemini API Key (optional if set in environment):</label>
+                <input type="password" id="diff-api-key" placeholder="Your Gemini API key">
+                
+                <button onclick="reviewDiff()">Review Diff</button>
+            </div>
+        </div>
+
+        <div id="results" class="hidden">
+            <div class="score-section">
+                <h2>PR Quality Score: <span id="pr-score">0</span>/100</h2>
+            </div>
+
+            <div class="results-section">
+                <h3>PR Details</h3>
+                <div id="pr-details"></div>
+            </div>
+
+            <div class="results-section">
+                <h3>Code Review</h3>
+                <div id="review-content"></div>
+            </div>
+
+            <div class="results-section">
+                <h3>Inline Comments</h3>
+                <div id="inline-comments"></div>
+            </div>
+
+            <div class="results-section">
+                <h3>Code Suggestions</h3>
+                <ul id="suggestions"></ul>
+            </div>
+        </div>
+
+        <div id="loading" class="hidden">
+            <div class="spinner"></div>
+            <p>Analyzing code changes...</p>
+        </div>
+
+        <div id="error" class="hidden error-message"></div>
+    </div>
+
+    <script>
+        function openTab(evt, tabName) {
+            var i, tabcontent, tablinks;
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].classList.remove("active");
+            }
+            tablinks = document.getElementsByClassName("tab-link");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].classList.remove("active");
+            }
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+
+        function reviewPR() {
+            const prUrl = document.getElementById('pr-url').value;
+            const apiKey = document.getElementById('api-key').value;
+            
+            if (!prUrl) {
+                showError('Please enter a PR URL');
+                return;
+            }
+            
+            performReview('/review', {pr_url: prUrl, api_key: apiKey});
+        }
+
+        function reviewDiff() {
+            const diffText = document.getElementById('diff-text').value;
+            const apiKey = document.getElementById('diff-api-key').value;
+            
+            if (!diffText) {
+                showError('Please enter diff content');
+                return;
+            }
+            
+            performReview('/upload', {diff_text: diffText, api_key: apiKey});
+        }
+
+        function performReview(endpoint, data) {
+            showLoading();
+            hideError();
+            hideResults();
+            
+            fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    displayResults(data);
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showError('An error occurred: ' + error.message);
+            });
+        }
+
+        function displayResults(data) {
+            document.getElementById('pr-score').textContent = data.pr_score;
+            
+            // Display PR details
+            const prDetails = document.getElementById('pr-details');
+            prDetails.innerHTML = `
+                <p><strong>Title:</strong> ${data.pr_details.title}</p>
+                <p><strong>Author:</strong> ${data.pr_details.author}</p>
+                <p><strong>State:</strong> ${data.pr_details.state}</p>
+                <p><strong>Base Branch:</strong> ${data.pr_details.base_branch}</p>
+                <p><strong>Head Branch:</strong> ${data.pr_details.head_branch}</p>
+            `;
+            
+            // Display review
+            document.getElementById('review-content').innerHTML = data.review;
+            
+            // Display inline comments
+            const commentsContainer = document.getElementById('inline-comments');
+            commentsContainer.innerHTML = '';
+            data.inline_comments.forEach(comment => {
+                if (comment.error) {
+                    commentsContainer.innerHTML += `<p class="error">${comment.error}</p>`;
+                } else {
+                    commentsContainer.innerHTML += `
+                        <div class="comment">
+                            <p><strong>File:</strong> ${comment.file || 'N/A'}</p>
+                            <p><strong>Line:</strong> ${comment.line || 'N/A'}</p>
+                            <p><strong>Comment:</strong> ${comment.comment || 'N/A'}</p>
+                            ${comment.suggestion ? `<p><strong>Suggestion:</strong> ${comment.suggestion}</p>` : ''}
+                        </div>
+                    `;
+                }
+            });
+            
+            // Display suggestions
+            const suggestionsList = document.getElementById('suggestions');
+            suggestionsList.innerHTML = '';
+            data.suggestions.forEach(suggestion => {
+                suggestionsList.innerHTML += `<li>${suggestion}</li>`;
+            });
+            
+            showResults();
+        }
+
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        function showResults() {
+            document.getElementById('results').classList.remove('hidden');
+        }
+
+        function hideResults() {
+            document.getElementById('results').classList.add('hidden');
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('error').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
